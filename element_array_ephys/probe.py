@@ -4,7 +4,6 @@ from .readers import probe_geometry
 from .readers.probe_geometry import build_electrode_layouts
 
 log = dj.logger
-
 schema = dj.schema()
 
 
@@ -136,6 +135,7 @@ def create_neuropixels_probe_types():
         "neuropixels UHD",
         "neuropixels 2.0 - SS",
         "neuropixels 2.0 - MS",
+        "Neuropixels 2.0 - Multishank",
     ):
         if not (ProbeType & {"probe_type": probe_type}):
             create_neuropixels_probe(probe_type)
@@ -149,6 +149,7 @@ def create_neuropixels_probe(probe_type: str = "neuropixels 1.0 - 3A"):
     + neuropixels UHD
     + neuropixels 2.0 - SS
     + neuropixels 2.0 - MS
+    + Neuropixels 2.0 - Multishank
 
     For electrode location, the (0, 0) is the
      bottom left corner of the probe (ignore the tip portion)

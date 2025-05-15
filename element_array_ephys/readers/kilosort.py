@@ -21,8 +21,8 @@ class Kilosort:
         "similar_templates.npy",
         "spike_templates.npy",
         "spike_times.npy",
-        "template_features.npy",
-        "template_feature_ind.npy",
+        # "template_features.npy",
+        # "template_feature_ind.npy",
         "templates.npy",
         "templates_ind.npy",
         "whitening_mat.npy",
@@ -114,9 +114,13 @@ class Kilosort:
         self._data["channel_map"] = self._data["channel_map"].flatten()
 
         # Read the Cluster Groups
+        # for cluster_pattern, cluster_col_name in zip(    #### this didn't work because the cluster_group.tsv was empty
+        #     ["cluster_group.*", "cluster_KSLabel.*", "cluster_group.*"],
+        #     ["group", "KSLabel", "KSLabel"],
+        # ):
         for cluster_pattern, cluster_col_name in zip(
-            ["cluster_group.*", "cluster_KSLabel.*", "cluster_group.*"],
-            ["group", "KSLabel", "KSLabel"],
+            ["cluster_KSLabel.*", "cluster_group.*"],
+            ["KSLabel", "KSLabel"],
         ):
             try:
                 cluster_file = next(self._kilosort_dir.glob(cluster_pattern))
@@ -134,8 +138,11 @@ class Kilosort:
                     df = pd.read_csv(cluster_file, delimiter="\t")
 
                 try:
+                    #print(np.array(df[cluster_col_name].values))
+                    #print(df)
                     self._data["cluster_groups"] = np.array(df[cluster_col_name].values)
                     self._data["cluster_ids"] = np.array(df["cluster_id"].values)
+                    #print(np.array(df["cluster_id"].values))
                 except KeyError:
                     continue
                 else:

@@ -108,6 +108,7 @@ M["neuropixels 1.0"] = M["NP1010"]
 M["neuropixels UHD"] = M["NP1100"]
 M["neuropixels 2.0 - SS"] = M["NP2000"]
 M["neuropixels 2.0 - MS"] = M["NP2010"]
+M["Neuropixels 2.0 - Multishank"] = M["NP2014"]
 
 
 def build_npx_probe(

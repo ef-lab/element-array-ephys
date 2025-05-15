@@ -68,23 +68,34 @@ def activate(
 
 # -------------- Functions required by the elements-ephys  ---------------
 
+def get_ephys_root_data_dir():
+    """Retrieve ephys root data directory."""
+    ephys_root_dirs = dj.config.get("custom", {}).get("ephys_root_data_dir", None)
+    if not ephys_root_dirs:
+        return None
+    elif isinstance(ephys_root_dirs, (str, pathlib.Path)):
+        return [ephys_root_dirs]
+    elif isinstance(ephys_root_dirs, list):
+        return ephys_root_dirs
+    else:
+        raise TypeError("`ephys_root_data_dir` must be a string, pathlib, or list")
+        
+# def get_ephys_root_data_dir() -> list:
+#     """Fetches absolute data path to ephys data directories.
 
-def get_ephys_root_data_dir() -> list:
-    """Fetches absolute data path to ephys data directories.
+#     The absolute path here is used as a reference for all downstream relative paths used in DataJoint.
 
-    The absolute path here is used as a reference for all downstream relative paths used in DataJoint.
+#     Returns:
+#         A list of the absolute path(s) to ephys data directories.
+#     """
+#     root_directories = _linking_module.get_ephys_root_data_dir()
+#     if isinstance(root_directories, (str, pathlib.Path)):
+#         root_directories = [root_directories]
 
-    Returns:
-        A list of the absolute path(s) to ephys data directories.
-    """
-    root_directories = _linking_module.get_ephys_root_data_dir()
-    if isinstance(root_directories, (str, pathlib.Path)):
-        root_directories = [root_directories]
+#     if hasattr(_linking_module, "get_processed_root_data_dir"):
+#         root_directories.append(_linking_module.get_processed_root_data_dir())
 
-    if hasattr(_linking_module, "get_processed_root_data_dir"):
-        root_directories.append(_linking_module.get_processed_root_data_dir())
-
-    return root_directories
+#     return _linking_module.get_ephys_root_data_dir(session_key)
 
 
 def get_session_directory(session_key: dict) -> str:
@@ -402,7 +413,9 @@ class EphysRecording(dj.Imported):
                 for channel_idx, channel_info in channel2electrode_map.items()
             ]
         elif acq_software == "Open Ephys":
+            #print(session_dir)
             dataset = openephys.OpenEphys(session_dir)
+            #print(dataset.probes.items())
             for serial_number, probe_data in dataset.probes.items():
                 if str(serial_number) == inserted_probe_serial_number:
                     break
@@ -410,7 +423,8 @@ class EphysRecording(dj.Imported):
                 raise FileNotFoundError(
                     "No Open Ephys data found for probe insertion: {}".format(key)
                 )
-
+            #print(probe_data)
+            #print(probe_data.ap_meta)
             if not probe_data.ap_meta:
                 raise IOError(
                     'No analog signals found - check "structure.oebin" file or "continuous" directory'
@@ -427,9 +441,10 @@ class EphysRecording(dj.Imported):
             probe_electrodes = {
                 key["electrode"]: key for key in electrode_query.fetch("KEY")
             }  # electrode configuration
-
+            
+            # it gives channel_indices starting from -1, it's obviously wrong!
             electrode_group_members = [
-                probe_electrodes[channel_idx]
+                probe_electrodes[channel_idx+1]
                 for channel_idx in probe_data.ap_meta["channels_indices"]
             ]  # recording session-specific electrode configuration
 
@@ -449,7 +464,8 @@ class EphysRecording(dj.Imported):
                     probe_data.recording_info["recording_durations"]
                 ),
             }
-
+            # print('line 469')
+            # print(probe_data.recording_info["recording_files"][0])
             root_dir = find_root_directory(
                 get_ephys_root_data_dir(),
                 probe_data.recording_info["recording_files"][0],
@@ -461,7 +477,7 @@ class EphysRecording(dj.Imported):
             ]
 
             channel2electrode_map = {
-                channel_idx: probe_electrodes[channel_idx]
+                channel_idx: probe_electrodes[channel_idx+1]
                 for channel_idx in probe_data.ap_meta["channels_indices"]
             }
 
@@ -589,7 +605,8 @@ class LFP(dj.Imported):
                 electrode_keys.append(probe_electrodes[(shank, shank_col, shank_row)])
         elif acq_software == "Open Ephys":
             oe_probe = get_openephys_probe_data(key)
-
+            print(oe_probe)
+            print(oe_probe.lfp_meta)
             lfp_channel_ind = np.r_[
                 len(oe_probe.lfp_meta["channels_indices"])
                 - 1 : 0 : -self._skip_channel_counts
@@ -1017,8 +1034,10 @@ class CuratedClustering(dj.Imported):
 
         # Get channel and electrode-site mapping
         electrode_query = (EphysRecording.Channel & key).proj(..., "-channel_name")
+        #print('line1036')
+        #print(electrode_query.fetch(as_dict=True))
         channel2electrode_map: dict[int, dict] = {
-            chn.pop("channel_idx"): chn for chn in electrode_query.fetch(as_dict=True)
+            chn.pop("channel_idx")+1: chn for chn in electrode_query.fetch(as_dict=True)
         }
 
         # Get sorter method and create output directory.
@@ -1115,6 +1134,7 @@ class CuratedClustering(dj.Imported):
                 )
         else:  # read from kilosort outputs
             kilosort_dataset = kilosort.Kilosort(output_dir)
+            print(kilosort_dataset)
             acq_software, sample_rate = (EphysRecording & key).fetch1(
                 "acq_software", "sampling_rate"
             )
@@ -1124,14 +1144,22 @@ class CuratedClustering(dj.Imported):
             )
 
             # ---------- Unit ----------
-            # -- Remove 0-spike units
-            withspike_idx = [
-                i
-                for i, u in enumerate(kilosort_dataset.data["cluster_ids"])
-                if (kilosort_dataset.data["spike_clusters"] == u).any()
-            ]
-            valid_units = kilosort_dataset.data["cluster_ids"][withspike_idx]
-            valid_unit_labels = kilosort_dataset.data["cluster_groups"][withspike_idx]
+            # # -- Remove 0-spike units
+            print(len(kilosort_dataset.data["cluster_ids"]))
+            print(len(kilosort_dataset.data["spike_clusters"]))
+            # withspike_idx = [
+            #     i
+            #     for i, u in enumerate(kilosort_dataset.data["cluster_ids"])
+            #     if (kilosort_dataset.data["spike_clusters"] == u).any()
+            # ]
+            # valid_units = kilosort_dataset.data["cluster_ids"][withspike_idx]
+            # valid_unit_labels = kilosort_dataset.data["cluster_groups"][withspike_idx]
+
+            ## ignore remove 0-spike units for now (if they exist..) we'll handle it later on
+            valid_units = kilosort_dataset.data["cluster_ids"]
+            valid_unit_labels = kilosort_dataset.data["cluster_groups"]
+            print('HERE')
+            print(len(valid_units), len(valid_unit_labels))
 
             # -- Spike-times --
             # spike_times_sec_adj > spike_times_sec > spike_times
@@ -1148,6 +1176,10 @@ class CuratedClustering(dj.Imported):
             kilosort_dataset.extract_spike_depths()
 
             # -- Spike-sites and Spike-depths --
+            print('line 1167')
+            #print(channel2electrode_map)
+            #print(channel2electrode_map["electrode"])
+            #print(len(kilosort_dataset.data["spike_sites"]))
             spike_sites = np.array(
                 [
                     channel2electrode_map[s]["electrode"]
@@ -1156,8 +1188,12 @@ class CuratedClustering(dj.Imported):
             )
             spike_depths = kilosort_dataset.data["spike_depths"]
 
+            print(len(kilosort_dataset.data["spike_depths"]))
+
             # -- Insert unit, label, peak-chn
             units = []
+            print(valid_units)
+            print(valid_unit_labels)
             for unit, unit_lbl in zip(valid_units, valid_unit_labels):
                 if (kilosort_dataset.data["spike_clusters"] == unit).any():
                     unit_channel, _ = kilosort_dataset.get_best_channel(unit)
@@ -1183,7 +1219,7 @@ class CuratedClustering(dj.Imported):
                             ],
                         }
                     )
-
+        #print(units)
         self.insert1(key)
         self.Unit.insert(units, ignore_extra_fields=True)
 
@@ -1257,9 +1293,10 @@ class WaveformSet(dj.Imported):
         # Get channel and electrode-site mapping
         electrode_query = (EphysRecording.Channel & key).proj(..., "-channel_name")
         channel2electrode_map: dict[int, dict] = {
-            chn.pop("channel_idx"): chn for chn in electrode_query.fetch(as_dict=True)
+            chn.pop("channel_idx")+1: chn for chn in electrode_query.fetch(as_dict=True)
         }
-
+        #print('line 1297')
+        #print(channel2electrode_map)
         si_sorting_analyzer_dir = output_dir / sorter_name / "sorting_analyzer"
         if si_sorting_analyzer_dir.exists():  # read from spikeinterface outputs
             import spikeinterface as si
@@ -1371,6 +1408,7 @@ class WaveformSet(dj.Imported):
                     ]
 
                 def yield_unit_waveforms():
+                    #print(units.values())
                     for unit_dict in units.values():
                         unit_peak_waveform = {}
                         unit_electrode_waveforms = []
@@ -1382,6 +1420,9 @@ class WaveformSet(dj.Imported):
                         waveforms = waveforms.transpose(
                             (1, 2, 0)
                         )  # (channel x spike x sample)
+                        print('line1420')
+                        print(len(kilosort_dataset.data["channel_map"]))
+                        print(len(waveforms))
                         for channel, channel_waveform in zip(
                             kilosort_dataset.data["channel_map"], waveforms
                         ):

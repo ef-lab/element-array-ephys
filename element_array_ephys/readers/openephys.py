@@ -36,13 +36,21 @@ Record Node 102
 class OpenEphys:
     def __init__(self, experiment_dir):
         self.session_dir = pathlib.Path(experiment_dir)
+        print('inside openephys class')
+        print(self.session_dir)
+        print(self.session_dir.name)
+        print(self.session_dir.parent.parent)
 
         if self.session_dir.name.startswith("recording"):
+            print('if')
+            print(self.session_dir.parent.parent)
             openephys_file = pyopenephys.File(
                 self.session_dir.parent.parent
             )  # this is on the Record Node level
             self._is_recording_folder = True
         else:
+            print('else')
+            print(self.session_dir.parent)
             openephys_file = pyopenephys.File(
                 self.session_dir.parent
             )  # this is on the Record Node level
@@ -99,13 +107,17 @@ class OpenEphys:
                 else [sigchain["PROCESSOR"]]
             )
             for processor in processor_iter:
+                print(processor["STREAM"])
                 if processor["@pluginName"] in ("Neuropix-3a", "Neuropix-PXI"):
                     if "STREAM" in processor:  # only on version >= 0.6.0
-                        ap_streams = [
-                            stream
-                            for stream in processor["STREAM"]
-                            if not stream["@name"].endswith("LFP")
-                        ]
+                        ap_streams = [processor["STREAM"]["@name"]]
+                        # [
+                        #     stream
+                        #     for stream in processor["STREAM"]
+                        #     if not stream["@name"].endswith("LFP")
+                        # ]
+                        print('line 118')
+                        print(ap_streams)
                     else:
                         ap_streams = None
 
@@ -131,6 +143,9 @@ class OpenEphys:
                 for probe_index in probe_indices:
                     probe = Probe(processor, probe_index)
                     if ap_streams:
+                        print('line145')
+                        #print(probe.probe_info["ap_stream"])
+                        #print(ap_streams[probe_index])
                         probe.probe_info["ap_stream"] = ap_streams[probe_index]
                     probes[probe.probe_SN] = probe
 
@@ -155,11 +170,15 @@ class OpenEphys:
                 ):
                     if continuous_info["source_processor_id"] != probe.processor_id:
                         continue
-
+                    print('line 169')
+                    print(probe.probe_info["ap_stream"])
+                    #print(probe.probe_info["ap_stream"].split("-")[0])
+                    print(continuous_info["stream_name"])
+                    #print(continuous_info["stream_name"].split("-")[0])
                     # determine if this is continuous data for AP or LFP for the current probe
                     if "ap_stream" in probe.probe_info:
                         if (
-                            probe.probe_info["ap_stream"]["@name"].split("-")[0]
+                            probe.probe_info["ap_stream"].split("-")[0]
                             != continuous_info["stream_name"].split("-")[0]
                         ):
                             continue  # not continuous data for the current probe
@@ -168,6 +187,7 @@ class OpenEphys:
                             continuous_type = match.groups()[0].lower()
                         else:
                             continuous_type = "ap"
+                            print('line 184, ap only')
                     elif "source_processor_sub_idx" in continuous_info:
                         if (
                             continuous_info["source_processor_sub_idx"]
@@ -251,6 +271,7 @@ _probe_model_name_mapping = {
     "Neuropixels 24": "neuropixels 2.0 - MS",
     "Neuropixels 2.0 - Single Shank": "neuropixels 2.0 - SS",
     "Neuropixels 2.0 - Four Shank": "neuropixels 2.0 - MS",
+    "Neuropixels 2.0 - Multishank": "Neuropixels 2.0 - Multishank",
 }
 
 
@@ -285,7 +306,7 @@ class Probe:
             )
             self.probe_SN = self.probe_info["@probe_serial_number"]
             self.probe_model = _probe_model_name_mapping[self.probe_info["@probe_name"]]
-
+            print(self.probe_SN)
             if "ELECTRODE_XPOS" in self.probe_info:
                 self.probe_info["ELECTRODE_XPOS"] = {
                     int(re.search(r"\d+$", k).group()): int(v)
@@ -296,10 +317,9 @@ class Probe:
                     for k, v in self.probe_info.pop("ELECTRODE_YPOS").items()
                 }
                 self.probe_info["ELECTRODE_SHANK"] = {
-                    int(re.search(r"\d+$", k).group()): int(v)
+                    int(re.search(r"\d+$", k).group()): int(v[2])
                     for k, v in self.probe_info["CHANNELS"].items()
                 }
-
             self._channels_connected = {
                 int(re.search(r"\d+$", k).group()): 1
                 for k in self.probe_info.pop("CHANNELS")
