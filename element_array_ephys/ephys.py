@@ -895,8 +895,10 @@ class Clustering(dj.Imported):
             ClusteringTask.update1(
                 {**key, "clustering_output_dir": output_dir.as_posix()}
             )
-
+        print(get_ephys_root_data_dir())
+        print(output_dir)
         kilosort_dir = find_full_path(get_ephys_root_data_dir(), output_dir)
+        print(kilosort_dir)
 
         if task_mode == "load":
             kilosort.Kilosort(
@@ -1032,6 +1034,8 @@ class CuratedClustering(dj.Imported):
         ).fetch1("clustering_method", "clustering_output_dir")
         output_dir = find_full_path(get_ephys_root_data_dir(), output_dir)
 
+        print(f'line 1037: {output_dir}')
+
         # Get channel and electrode-site mapping
         electrode_query = (EphysRecording.Channel & key).proj(..., "-channel_name")
         #print('line1036')
@@ -1042,9 +1046,14 @@ class CuratedClustering(dj.Imported):
 
         # Get sorter method and create output directory.
         sorter_name = clustering_method.replace(".", "_")
-        si_sorting_analyzer_dir = output_dir / sorter_name / "sorting_analyzer"
+        #si_sorting_analyzer_dir = output_dir / sorter_name / "sorting_analyzer"
+        si_sorting_analyzer_dir = output_dir / "sorting_analyzer"
+
+        print(sorter_name)
+        print(si_sorting_analyzer_dir)
 
         if si_sorting_analyzer_dir.exists():  # Read from spikeinterface outputs
+            print('use spikeinterface..')
             import spikeinterface as si
             from spikeinterface import sorters
 
