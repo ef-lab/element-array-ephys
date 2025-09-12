@@ -1486,8 +1486,8 @@ class QualityMetrics(dj.Imported):
             firing_rate (float): Firing rate of the unit.
             snr (float): Signal-to-noise ratio for a unit.
             presence_ratio (float): Fraction of time where spikes are present.
-            isi_violation (float): rate of ISI violation as a fraction of overall rate.
-            number_violation (int): Total ISI violations.
+            isi_violations_ratio (float): rate of ISI violation as a fraction of overall rate.
+            isi_violations_count (int): Total ISI violations.
             amplitude_cutoff (float): Estimate of miss rate based on amplitude histogram.
             isolation_distance (float): Distance to nearest cluster.
             l_ratio (float): Amount of empty space between a cluster and other spikes in dataset.
@@ -1507,8 +1507,8 @@ class QualityMetrics(dj.Imported):
         firing_rate=null: float # (Hz) firing rate for a unit 
         snr=null: float  # signal-to-noise ratio for a unit
         presence_ratio=null: float  # fraction of time in which spikes are present
-        isi_violation=null: float   # rate of ISI violation as a fraction of overall rate
-        number_violation=null: int  # total number of ISI violations
+        isi_violations_ratio=null: float   # rate of ISI violation as a fraction of overall rate
+        isi_violations_count=null: int  # total number of ISI violations
         amplitude_cutoff=null: float  # estimate of miss rate based on amplitude histogram
         isolation_distance=null: float  # distance to nearest cluster in Mahalanobis space
         l_ratio=null: float  # 
@@ -1518,7 +1518,7 @@ class QualityMetrics(dj.Imported):
         silhouette_score=null: float  # Standard metric for cluster overlap
         max_drift=null: float  # Maximum change in spike depth throughout recording
         cumulative_drift=null: float  # Cumulative change in spike depth throughout recording 
-        contamination_rate=null: float # 
+        rp_contamination=null: float # 
         """
 
     class Waveform(dj.Part):
@@ -1560,8 +1560,16 @@ class QualityMetrics(dj.Imported):
         clustering_method, output_dir = (
             ClusteringTask * ClusteringParamSet & key
         ).fetch1("clustering_method", "clustering_output_dir")
+        def keep_until_probe(s):
+            match = re.search(r"(.*?\.Probe[^/]+/)(?=kilosort)", s)
+            print(match)
+            return match.group(1) if match else s
+        output_dir = keep_until_probe(output_dir)  
+        # print(f"Before ephys root data {output_dir}")
         output_dir = find_full_path(get_ephys_root_data_dir(), output_dir)
-        sorter_name = clustering_method.replace(".", "_")
+        # print(f"After ephys root data {output_dir}")
+        # sorter_name = clustering_method.replace(".", "_")
+        # print(f"Sorter name is {sorter_name}")
 
         self.insert1(key)
         if not len(CuratedClustering.Unit & key):
@@ -1570,54 +1578,63 @@ class QualityMetrics(dj.Imported):
             )
             return
 
-        si_sorting_analyzer_dir = output_dir / sorter_name / "sorting_analyzer"
-        if si_sorting_analyzer_dir.exists():  # read from spikeinterface outputs
-            import spikeinterface as si
+        # si_sorting_analyzer_dir = output_dir / sorter_name / "sorting_analyzer"
+        si_sorting_analyzer_dir = output_dir /  "sorting_analyzer/extensions/quality_metrics/"
+        
+        print(f"Si sorting analyzer {si_sorting_analyzer_dir}")
+        # if si_sorting_analyzer_dir.exists():  # read from spikeinterface outputs
+        #     import spikeinterface as si
 
-            sorting_analyzer = si.load_sorting_analyzer(folder=si_sorting_analyzer_dir)
-            qc_metrics = sorting_analyzer.get_extension("quality_metrics").get_data()
-            template_metrics = sorting_analyzer.get_extension(
-                "template_metrics"
-            ).get_data()
-            metrics_df = pd.concat([qc_metrics, template_metrics], axis=1)
+        #     sorting_analyzer = si.load_sorting_analyzer(folder=si_sorting_analyzer_dir)
+        #     qc_metrics = sorting_analyzer.get_extension("quality_metrics").get_data()
+        #     template_metrics = sorting_analyzer.get_extension(
+        #         "template_metrics"
+        #     ).get_data()
+        #     metrics_df = pd.concat([qc_metrics, template_metrics], axis=1)
 
+        #     metrics_df.rename(
+        #         columns={
+        #             "amplitude_median": "amplitude",
+        #             "isi_violations_ratio": "isi_violation",
+        #             "isi_violations_count": "number_violation",
+        #             "silhouette": "silhouette_score",
+        #             "rp_contamination": "contamination_rate",
+        #             "drift_ptp": "max_drift",
+        #             "drift_mad": "cumulative_drift",
+        #             "half_width": "halfwidth",
+        #             "peak_trough_ratio": "pt_ratio",
+        #             "peak_to_valley": "duration",
+        #         },
+        #         inplace=True,
+        #     )
+        # else:  # read from kilosort outputs (ecephys pipeline)
+        print("Or are we in Here??")
+        
+        # find metric_fp
+        for metric_fp in [
+            # output_dir / "metrics.csv",
+            si_sorting_analyzer_dir / "metrics.csv",
+        ]:
+            # print(f"metric_fp is {metric_fp} and type is {type(metric_fp)}")
+            print(f" lets see if exists {metric_fp.exists()}")
+            if metric_fp.exists():
+                break
+        else:
+            raise FileNotFoundError(f"QC metrics file not found in: {si_sorting_analyzer_dir}")
+
+        metrics_df = pd.read_csv(metric_fp)
+        print(metrics_df)
+
+        # Conform the dataframe to match the table definition
+        if "cluster_id" in metrics_df.columns:
+            metrics_df.set_index("cluster_id", inplace=True)
+        else:
             metrics_df.rename(
-                columns={
-                    "amplitude_median": "amplitude",
-                    "isi_violations_ratio": "isi_violation",
-                    "isi_violations_count": "number_violation",
-                    "silhouette": "silhouette_score",
-                    "rp_contamination": "contamination_rate",
-                    "drift_ptp": "max_drift",
-                    "drift_mad": "cumulative_drift",
-                    "half_width": "halfwidth",
-                    "peak_trough_ratio": "pt_ratio",
-                    "peak_to_valley": "duration",
-                },
-                inplace=True,
+                columns={metrics_df.columns[0]: "cluster_id"}, inplace=True
             )
-        else:  # read from kilosort outputs (ecephys pipeline)
-            # find metric_fp
-            for metric_fp in [
-                output_dir / "metrics.csv",
-            ]:
-                if metric_fp.exists():
-                    break
-            else:
-                raise FileNotFoundError(f"QC metrics file not found in: {output_dir}")
+            metrics_df.set_index("cluster_id", inplace=True)
 
-            metrics_df = pd.read_csv(metric_fp)
-
-            # Conform the dataframe to match the table definition
-            if "cluster_id" in metrics_df.columns:
-                metrics_df.set_index("cluster_id", inplace=True)
-            else:
-                metrics_df.rename(
-                    columns={metrics_df.columns[0]: "cluster_id"}, inplace=True
-                )
-                metrics_df.set_index("cluster_id", inplace=True)
-
-            metrics_df.columns = metrics_df.columns.str.lower()
+        metrics_df.columns = metrics_df.columns.str.lower()
 
         metrics_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         metrics_list = [
