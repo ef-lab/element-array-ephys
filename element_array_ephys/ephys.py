@@ -1504,21 +1504,33 @@ class QualityMetrics(dj.Imported):
         -> master
         -> CuratedClustering.Unit
         ---
+        num_spikes=null: float  # Number of spikes
         firing_rate=null: float # (Hz) firing rate for a unit 
         snr=null: float  # signal-to-noise ratio for a unit
         presence_ratio=null: float  # fraction of time in which spikes are present
         isi_violations_ratio=null: float   # rate of ISI violation as a fraction of overall rate
         isi_violations_count=null: int  # total number of ISI violations
         amplitude_cutoff=null: float  # estimate of miss rate based on amplitude histogram
+        amplitude_median=null: float  #
+        amplitude_cv_median=null: float  #
+        amplitude_cv_range=null: float  #
         isolation_distance=null: float  # distance to nearest cluster in Mahalanobis space
         l_ratio=null: float  # 
         d_prime=null: float  # Classification accuracy based on LDA
         nn_hit_rate=null: float  # Fraction of neighbors for target cluster that are also in target cluster
         nn_miss_rate=null: float # Fraction of neighbors outside target cluster that are in target cluster
-        silhouette_score=null: float  # Standard metric for cluster overlap
-        max_drift=null: float  # Maximum change in spike depth throughout recording
-        cumulative_drift=null: float  # Cumulative change in spike depth throughout recording 
-        rp_contamination=null: float # 
+        silhouette=null: float  # Standard metric for cluster overlap
+        drift_ptp=null: float  # Maximum change in spike depth throughout recording
+        drift_mad=null: float  # Cumulative change in spike depth throughout recording
+        drift_std=null: float  #
+        rp_contamination=null: float  # 
+        rp_violations=null: float  #
+        sliding_rp_violation=null: float  #
+        sync_spike_2=null: float  #
+        sync_spike_4=null: float #
+        sync_spike_8=null: float #
+        firing_range=null: float #
+        sd_ratio=null: float #
         """
 
     class Waveform(dj.Part):
@@ -1543,15 +1555,18 @@ class QualityMetrics(dj.Imported):
         -> master
         -> CuratedClustering.Unit
         ---
-        amplitude=null: float  # (uV) absolute difference between waveform peak and trough
-        duration=null: float  # (ms) time between waveform peak and trough
-        halfwidth=null: float  # (ms) spike width at half max amplitude
-        pt_ratio=null: float  # absolute amplitude of peak divided by absolute amplitude of trough relative to 0
+        amplitude_median=null: float  # (uV) absolute difference between waveform peak and trough
+        peak_to_valley=null: float  # (ms) time between waveform peak and trough
+        half_width=null: float  # (ms) spike width at half max amplitude
+        peak_trough_ratio=null: float  # absolute amplitude of peak divided by absolute amplitude of trough relative to 0
         repolarization_slope=null: float  # the repolarization slope was defined by fitting a regression line to the first 30us from trough to peak
         recovery_slope=null: float  # the recovery slope was defined by fitting a regression line to the first 30us from peak to tail
         spread=null: float  # (um) the range with amplitude above 12-percent of the maximum amplitude along the probe
         velocity_above=null: float  # (s/m) inverse velocity of waveform propagation from the soma toward the top of the probe
         velocity_below=null: float  # (s/m) inverse velocity of waveform propagation from the soma toward the bottom of the probe
+        num_positive_peaks=null: float #
+        num_negative_peaks=null: float #
+        exp_decay=null: float #
         """
 
     def make(self, key):
@@ -1568,8 +1583,6 @@ class QualityMetrics(dj.Imported):
         # print(f"Before ephys root data {output_dir}")
         output_dir = find_full_path(get_ephys_root_data_dir(), output_dir)
         # print(f"After ephys root data {output_dir}")
-        # sorter_name = clustering_method.replace(".", "_")
-        # print(f"Sorter name is {sorter_name}")
 
         self.insert1(key)
         if not len(CuratedClustering.Unit & key):
@@ -1578,72 +1591,110 @@ class QualityMetrics(dj.Imported):
             )
             return
 
-        # si_sorting_analyzer_dir = output_dir / sorter_name / "sorting_analyzer"
-        si_sorting_analyzer_dir = output_dir /  "sorting_analyzer/extensions/quality_metrics/"
+        extensions = ["quality_metrics", "template_metrics"]
+        metrics_dfs = []
         
-        print(f"Si sorting analyzer {si_sorting_analyzer_dir}")
-        # if si_sorting_analyzer_dir.exists():  # read from spikeinterface outputs
-        #     import spikeinterface as si
-
-        #     sorting_analyzer = si.load_sorting_analyzer(folder=si_sorting_analyzer_dir)
-        #     qc_metrics = sorting_analyzer.get_extension("quality_metrics").get_data()
-        #     template_metrics = sorting_analyzer.get_extension(
-        #         "template_metrics"
-        #     ).get_data()
-        #     metrics_df = pd.concat([qc_metrics, template_metrics], axis=1)
-
-        #     metrics_df.rename(
-        #         columns={
-        #             "amplitude_median": "amplitude",
-        #             "isi_violations_ratio": "isi_violation",
-        #             "isi_violations_count": "number_violation",
-        #             "silhouette": "silhouette_score",
-        #             "rp_contamination": "contamination_rate",
-        #             "drift_ptp": "max_drift",
-        #             "drift_mad": "cumulative_drift",
-        #             "half_width": "halfwidth",
-        #             "peak_trough_ratio": "pt_ratio",
-        #             "peak_to_valley": "duration",
-        #         },
-        #         inplace=True,
-        #     )
-        # else:  # read from kilosort outputs (ecephys pipeline)
-        print("Or are we in Here??")
-        
-        # find metric_fp
-        for metric_fp in [
-            # output_dir / "metrics.csv",
-            si_sorting_analyzer_dir / "metrics.csv",
-        ]:
-            # print(f"metric_fp is {metric_fp} and type is {type(metric_fp)}")
-            print(f" lets see if exists {metric_fp.exists()}")
+        for ext in extensions:
+            si_sorting_analyzer_dir = output_dir / f"sorting_analyzer/extensions/{ext}/"
+            metric_fp = si_sorting_analyzer_dir / "metrics.csv"
+            print(f"Checking {metric_fp}")
             if metric_fp.exists():
-                break
-        else:
-            raise FileNotFoundError(f"QC metrics file not found in: {si_sorting_analyzer_dir}")
+                df = pd.read_csv(metric_fp)
+                print(f"Collumns {df.columns.tolist()}")
+                metrics_dfs.append(df)
+            else:
+                raise FileNotFoundError(f"Metrics file not found in: {metric_fp}")
+        
 
-        metrics_df = pd.read_csv(metric_fp)
-        print(metrics_df)
-
-        # Conform the dataframe to match the table definition
-        if "cluster_id" in metrics_df.columns:
-            metrics_df.set_index("cluster_id", inplace=True)
-        else:
-            metrics_df.rename(
-                columns={metrics_df.columns[0]: "cluster_id"}, inplace=True
-            )
-            metrics_df.set_index("cluster_id", inplace=True)
-
+        # --- just concatenate side by side ---
+        metrics_df = pd.concat(metrics_dfs, axis=1)
+        
+        # drop columns that are exact duplicates
+        metrics_df = metrics_df.loc[:, ~metrics_df.T.duplicated(keep="first")]
+        
+        # conform dataframe
+        # metrics_df.set_index("unit", inplace=True)
         metrics_df.columns = metrics_df.columns.str.lower()
-
         metrics_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        
+        # build list for DataJoint
         metrics_list = [
             dict(metrics_df.loc[unit_key["unit"]], **unit_key)
             for unit_key in (CuratedClustering.Unit & key).fetch("KEY")
         ]
-
+        
+        print(f"Final metrics list length: {len(metrics_list)}")
+        
+        # insert once after both metrics.csv are read
         self.Cluster.insert(metrics_list, ignore_extra_fields=True)
         self.Waveform.insert(metrics_list, ignore_extra_fields=True)
+
+        # # si_sorting_analyzer_dir = output_dir / sorter_name / "sorting_analyzer"
+        # si_sorting_analyzer_dir = output_dir /  "sorting_analyzer/extensions/quality_metrics/"
+        
+        # print(f"Si sorting analyzer {si_sorting_analyzer_dir}")
+        # # if si_sorting_analyzer_dir.exists():  # read from spikeinterface outputs
+        # #     import spikeinterface as si
+
+        # #     sorting_analyzer = si.load_sorting_analyzer(folder=si_sorting_analyzer_dir)
+        # #     qc_metrics = sorting_analyzer.get_extension("quality_metrics").get_data()
+        # #     template_metrics = sorting_analyzer.get_extension(
+        # #         "template_metrics"
+        # #     ).get_data()
+        # #     metrics_df = pd.concat([qc_metrics, template_metrics], axis=1)
+
+        # #     metrics_df.rename(
+        # #         columns={
+        # #             "amplitude_median": "amplitude",
+        # #             "isi_violations_ratio": "isi_violation",
+        # #             "isi_violations_count": "number_violation",
+        # #             "silhouette": "silhouette_score",
+        # #             "rp_contamination": "contamination_rate",
+        # #             "drift_ptp": "max_drift",
+        # #             "drift_mad": "cumulative_drift",
+        # #             "half_width": "halfwidth",
+        # #             "peak_trough_ratio": "pt_ratio",
+        # #             "peak_to_valley": "duration",
+        # #         },
+        # #         inplace=True,
+        # #     )
+        # # else:  # read from kilosort outputs (ecephys pipeline)
+        # print("Or are we in Here??")
+        
+        # # find metric_fp
+        # for metric_fp in [
+        #     # output_dir / "metrics.csv",
+        #     si_sorting_analyzer_dir / "metrics.csv",
+        # ]:
+        #     # print(f"metric_fp is {metric_fp} and type is {type(metric_fp)}")
+        #     print(f" lets see if exists {metric_fp.exists()}")
+        #     if metric_fp.exists():
+        #         break
+        # else:
+        #     raise FileNotFoundError(f"QC metrics file not found in: {si_sorting_analyzer_dir}")
+        # print(f"Metric fp is {metric_fp}")
+        # metrics_df = pd.read_csv(metric_fp)
+        # print(metrics_df)
+
+        # # Conform the dataframe to match the table definition
+        # if "cluster_id" in metrics_df.columns:
+        #     metrics_df.set_index("cluster_id", inplace=True)
+        # else:
+        #     metrics_df.rename(
+        #         columns={metrics_df.columns[0]: "cluster_id"}, inplace=True
+        #     )
+        #     metrics_df.set_index("cluster_id", inplace=True)
+
+        # metrics_df.columns = metrics_df.columns.str.lower()
+
+        # metrics_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        # metrics_list = [
+        #     dict(metrics_df.loc[unit_key["unit"]], **unit_key)
+        #     for unit_key in (CuratedClustering.Unit & key).fetch("KEY")
+        # ]
+        # print (f"Metric list is {metrics_list}")
+
+
 
 
 # ---------------- HELPER FUNCTIONS ----------------
