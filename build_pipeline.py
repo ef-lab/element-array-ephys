@@ -7,8 +7,7 @@ from element_array_ephys import probe, ephys, ephys_report
 import element_interface
 
 dj.config['database.host'] = 'database.eflab.org:3306'
-dj.config['database.username'] = 'maria'
-dj.config['database.password'] = 'Spike@Thr200'
+
 
 experiment_dir = '/mnt/lab/data01/OpenEphys'
 db_prefix = 'lab_npx_'
