@@ -413,10 +413,12 @@ class EphysRecording(dj.Imported):
                 for channel_idx, channel_info in channel2electrode_map.items()
             ]
         elif acq_software == "Open Ephys":
-            #print(session_dir)
+            print("Hey Im Here!!")
+            print(session_dir)
             dataset = openephys.OpenEphys(session_dir)
-            #print(dataset.probes.items())
+            print(dataset.probes.items())
             for serial_number, probe_data in dataset.probes.items():
+                print(f"Serial Number is {str(serial_number)} while inserted probeserial is: {inserted_probe_serial_number}")
                 if str(serial_number) == inserted_probe_serial_number:
                     break
             else:
