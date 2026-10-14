@@ -166,6 +166,7 @@ class Kilosort:
         """Reimplemented from https://github.com/cortex-lab/spikes/blob/master/analysis/ksDriftmap.m"""
 
         if "pc_features" in self.data:
+            print('inside if extract_spike_depths..')
             ycoords = self.data["channel_positions"][:, 1]
             pc_features = self.data["pc_features"][:, 0, :]  # 1st PC only
             pc_features = np.where(pc_features < 0, 0, pc_features)

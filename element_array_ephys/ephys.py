@@ -4,6 +4,7 @@ import inspect
 import pathlib
 import re
 from decimal import Decimal
+from datetime import datetime
 
 import datajoint as dj
 import numpy as np
@@ -313,10 +314,14 @@ class EphysRecording(dj.Imported):
             "probe"
         )
 
+        print(session_dir)
+        print(inserted_probe_serial_number)
+
         # Search session dir and determine acquisition software
         for ephys_pattern, ephys_acq_type in (
             ("*.ap.meta", "SpikeGLX"),
             ("*.oebin", "Open Ephys"),
+            ("*.bin", "LabView"),
         ):
             ephys_meta_filepaths = list(session_dir.rglob(ephys_pattern))
             if ephys_meta_filepaths:
@@ -494,6 +499,56 @@ class EphysRecording(dj.Imported):
             # Explicitly garbage collect "dataset" as these may have large memory footprint and may not be cleared fast enough
             del probe_data, dataset
             gc.collect()
+
+        elif acq_software == "LabView":
+
+            probe_type = "neuropixels 1.0 - 3B"
+        
+            electrode_query = probe.ProbeType.Electrode() & f'probe_type = "{probe_type}"'
+        
+            probe_electrodes = {
+                key["electrode"]: key
+                for key in electrode_query.fetch("KEY")
+            }
+        
+            # Bank A = electrodes 1..384
+            electrode_group_members = [
+                probe_electrodes[e]
+                for e in range(0, 384)
+            ]
+        
+            econfig_entry, econfig_electrodes = generate_electrode_config_entry(
+                probe_type,
+                electrode_group_members,
+            )
+
+            print(econfig_entry["electrode_config_hash"])
+
+            ephys_recording_entry = {
+                **key,
+                "electrode_config_hash": econfig_entry["electrode_config_hash"],
+                "acq_software": acq_software,
+                "sampling_rate": 30000,
+                "recording_datetime": datetime(2020, 2, 2),
+                "recording_duration": 3000,
+            }
+
+            print(key)
+
+            ephys_file_entries = [{**key, "file_path": session_dir}]
+            print(ephys_file_entries)
+
+            ephys_channel_entries = [
+                {
+                    **key,
+                    "electrode_config_hash": econfig_entry["electrode_config_hash"],
+                    "channel_idx": ch,
+                    **probe_electrodes[ch],   # electrode numbering is 1-based
+                }
+                for ch in range(384)
+            ]
+
+
         else:
             raise NotImplementedError(
                 f"Processing ephys files from acquisition software of type {acq_software} is not yet implemented."
@@ -503,12 +558,16 @@ class EphysRecording(dj.Imported):
         if not probe.ElectrodeConfig & {
             "electrode_config_hash": econfig_entry["electrode_config_hash"]
         }:
+            print('inserting electrodeconfig in probe')
+            print(econfig_entry)
+            print(len(econfig_electrodes))
             probe.ElectrodeConfig.insert1(econfig_entry)
             probe.ElectrodeConfig.Electrode.insert(econfig_electrodes)
 
+        print('inserting ephys info')
         self.insert1(ephys_recording_entry)
-        self.EphysFile.insert(ephys_file_entries)
-        self.Channel.insert(ephys_channel_entries)
+        self.EphysFile.insert(ephys_file_entries, ignore_extra_fields=True)
+        self.Channel.insert(ephys_channel_entries, ignore_extra_fields=True)
 
 
 @schema
@@ -1034,14 +1093,14 @@ class CuratedClustering(dj.Imported):
         ).fetch1("clustering_method", "clustering_output_dir")
         output_dir = find_full_path(get_ephys_root_data_dir(), output_dir)
 
-        print(f'line 1037: {output_dir}')
+        print(f'line 1037: {get_ephys_root_data_dir, output_dir}')
 
         # Get channel and electrode-site mapping
         electrode_query = (EphysRecording.Channel & key).proj(..., "-channel_name")
         #print('line1036')
         #print(electrode_query.fetch(as_dict=True))
         channel2electrode_map: dict[int, dict] = {
-            chn.pop("channel_idx")+1: chn for chn in electrode_query.fetch(as_dict=True)
+            chn.pop("channel_idx"): chn for chn in electrode_query.fetch(as_dict=True)
         }
 
         # Get sorter method and create output directory.
@@ -1182,7 +1241,10 @@ class CuratedClustering(dj.Imported):
                 )
             )
             spike_times = kilosort_dataset.data[spike_time_key]
+            print('entering extract_spike_depths')
             kilosort_dataset.extract_spike_depths()
+
+            print(kilosort_dataset.data["spike_depths"])
 
             # -- Spike-sites and Spike-depths --
             print('line 1167')
@@ -1608,9 +1670,11 @@ class QualityMetrics(dj.Imported):
 
         # --- just concatenate side by side ---
         metrics_df = pd.concat(metrics_dfs, axis=1)
+        print(metrics_df)
         
         # drop columns that are exact duplicates
         metrics_df = metrics_df.loc[:, ~metrics_df.T.duplicated(keep="first")]
+        print(metrics_df)
         
         # conform dataframe
         # metrics_df.set_index("unit", inplace=True)

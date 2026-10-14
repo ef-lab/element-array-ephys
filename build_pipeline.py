@@ -53,6 +53,9 @@ def replace_directory(a_directory):
     old_prefix3 = 'W:/OpenEphys'
     new_prefix3 = '/mnt/lab/data01/OpenEphys/'
 
+    old_prefix4 = '/mnt/lab/data01/OpenEphys/'
+    new_prefix4 = '/mnt/lab/data01/OpenEphys/'
+
     # Replace the prefix
     if a_directory.startswith(old_prefix1):
         return a_directory.replace(old_prefix1, new_prefix1)
@@ -60,6 +63,8 @@ def replace_directory(a_directory):
         return a_directory.replace(old_prefix2, new_prefix2)
     elif a_directory.startswith(old_prefix3):
         return a_directory.replace(old_prefix3, new_prefix3)
+    elif a_directory.startswith(old_prefix4):
+        return a_directory.replace(old_prefix4, new_prefix4)
     else:
         print('Something is wrong with the OpenEphys path')
         
@@ -97,7 +102,8 @@ def get_session_directory(session_key: dict) -> str:
         get_ephys_root_data_dir(),
         rep_dir
     )
-    return session_dir/'Record Node 101/experiment1/recording1'  
+ 
+    return session_dir   #/'Record Node 101/experiment1/recording1'  
 
 
 def get_processed_root_data_dir() -> str:
